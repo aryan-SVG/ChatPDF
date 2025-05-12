@@ -16,6 +16,8 @@ gradio
 langchain
 tiktoken
 faiss-cpu
+langchain-groq
+langchain-huggingface
 langchain-openai
 langchain_experimental
 langchain_chroma
