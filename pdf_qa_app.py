@@ -1,17 +1,22 @@
-import gradio as gr
-import os
-import warnings
-from typing import List
-from dotenv import load_dotenv
+import gradio as gr                 # import gradio for buliding UI 
+import os                           # import os to ineract with .env 
+import warnings                     # To suppress warnings.
+from typing import List             # For type hinting.                               
+from dotenv import load_dotenv      # To load environment variables from a .env file.
 
-from langchain_community.document_loaders import PyPDFLoader
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_community.vectorstores import Chroma
-from langchain_core.documents import Document
-from langchain_groq import ChatGroq
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.chains.retrieval_qa.base import RetrievalQA
 
+
+from langchain_community.document_loaders import PyPDFLoader   # Extracts text from PDFs.
+from langchain_huggingface import HuggingFaceEmbeddings        # Turns text into vectors using HF models.
+from langchain_community.vectorstores import Chroma            # A vector store to hold and retrieve those embeddings.
+from langchain_core.documents import Document                  # A document structure used in LangChain.
+from langchain_groq import ChatGroq                            # Loads the Groq API with LLaMA 3.3.
+from langchain.text_splitter import RecursiveCharacterTextSplitter # Splits text into chunks.
+from langchain.chains.retrieval_qa.base import RetrievalQA   #A QA chain that answers based on documents.   Three key abs-> llm , retriver , memory (history)
+# from langchain.chains import ConversationalRetrievalChain
+# from langchain.memory import ConversationBufferMemory
+
+#Loads variables from .env
 load_dotenv()
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 warnings.filterwarnings('ignore')
@@ -23,21 +28,21 @@ def load_pdf(file_path: str) -> List[Document]:
     Args:
         file_path (str): Path to the PDF file
     
-    Returns:
+    Returns: 
         List[Document]: Extracted documents from the PDF
     """
     try:
         loader = PyPDFLoader(file_path)
         documents = loader.load()
-        return documents
-    except FileNotFoundError:
+        return documents                                            
+    except FileNotFoundError:                                                 
         print(f"Error: File {file_path} not found.")
         return []
     except Exception as e:
         print(f"Error loading PDF: {e}")
         return []
 
-def split_documents(documents: List[Document], chunk_size: int = 500, chunk_overlap: int = 100) -> List[Document]:
+def split_documents(documents: List[Document], chunk_size: int = 500, chunk_overlap: int = 100) -> List[Document]:   # def split_pdf_into_chunks(documents: List[Document], chunk_size: int = 500, chunk_overlap: int = 100) -> List[Document]:
     """
     Split documents into smaller chunks.
     
@@ -56,7 +61,7 @@ def split_documents(documents: List[Document], chunk_size: int = 500, chunk_over
     )
     return text_splitter.split_documents(documents)
 
-def create_vector_store(documents: List[Document], embedding_model: str = 'sentence-transformers/all-MiniLM-L6-v2'):
+def create_vector_store(documents: List[Document], embedding_model: str = 'sentence-transformers/all-MiniLM-L6-v2'):  # Semantic search
     """
     Create a vector store from documents.
     
@@ -77,6 +82,7 @@ def create_vector_store(documents: List[Document], embedding_model: str = 'sente
 def create_qa_chain(vector_store):
     """
     Create a question-answering chain.
+    Three key abs-> llm , retriver , memory (history)
     
     Args:
         vector_store: Vector store to use as retriever
@@ -94,6 +100,26 @@ def create_qa_chain(vector_store):
             search_type="similarity",
             search_kwargs={"k": 5}  # Retrieve top 5 most similar chunks
         )
+
+
+        # memory = ConversationBufferMemory(
+        #     memory_key="chat_history",
+        #     return_messages=True
+        # )
+
+
+        # qa_chain = ConversationalRetrievalChain.from_llm(
+        #     llm=llm,
+        #     retriever=retriever,
+        #     memory=memory,
+        #     return_source_documents=True
+        # )
+
+        # return qa_chain
+
+
+
+        #Retrieval-Augmented Generation  pipeline
         return RetrievalQA.from_chain_type(
             llm=llm,
             chain_type="stuff",
@@ -125,9 +151,8 @@ class PDFProcessor:
         
         if not new_files:
             return "No new PDFs to process."
-        
+
         all_documents = []
-        
         # Load and process each new PDF
         for pdf_file in new_files:
             documents = load_pdf(pdf_file)
@@ -240,3 +265,15 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+# changes 
+'''
+chunk size 
+chunk overlap 
+search_kwargs
+memory 
+'''
