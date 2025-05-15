@@ -152,6 +152,7 @@ class PDFProcessor:
         if not new_files:
             return "No new PDFs to process."
 
+
         all_documents = []
         # Load and process each new PDF
         for pdf_file in new_files:
@@ -160,9 +161,11 @@ class PDFProcessor:
                 return f"Failed to load PDF: {pdf_file}"
             all_documents.extend(documents)
         
+
         # Split documents
         split_docs = split_documents(all_documents)
         
+
         # Create vector store
         if self.vector_store is None:
             self.vector_store = create_vector_store(split_docs)
@@ -174,6 +177,7 @@ class PDFProcessor:
         if not self.vector_store:
             return "Failed to create vector store"
         
+
         # Create QA chain
         self.qa_chain = create_qa_chain(self.vector_store)
         if not self.qa_chain:
@@ -224,6 +228,7 @@ def create_gradio_interface():
     with gr.Blocks(title="PDF Question Answering") as demo:
         gr.Markdown("# PDF Question Answering System")
         
+        
         with gr.Row():
             pdf_input = gr.File(
                 file_count="multiple", 
@@ -242,6 +247,8 @@ def create_gradio_interface():
         answer_output = gr.Textbox(label="Answer", interactive=False)
         sources_output = gr.Textbox(label="Source Documents", interactive=False)
         
+        
+        # Link button to backend functions 
         # Process PDFs
         process_btn.click(
             fn=pdf_processor.process_pdfs, 
@@ -272,6 +279,7 @@ if __name__ == "__main__":
 
 # changes 
 '''
+ask the 3 question for context 
 chunk size 
 chunk overlap 
 search_kwargs
