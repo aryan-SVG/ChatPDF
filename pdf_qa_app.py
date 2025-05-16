@@ -13,8 +13,11 @@ from langchain_core.documents import Document                  # A document stru
 from langchain_groq import ChatGroq                            # Loads the Groq API with LLaMA 3.3.
 from langchain.text_splitter import RecursiveCharacterTextSplitter # Splits text into chunks.
 from langchain.chains.retrieval_qa.base import RetrievalQA   #A QA chain that answers based on documents.   Three key abs-> llm , retriver , memory (history)
-# from langchain.chains import ConversationalRetrievalChain
-# from langchain.memory import ConversationBufferMemory
+
+#from langchain.chains import ConversationalRetrievalChain
+from langchain.chains.conversational_retrieval.base import ConversationalRetrievalChain
+
+from langchain.memory import ConversationBufferMemory
 
 #Loads variables from .env
 load_dotenv()
@@ -102,30 +105,30 @@ def create_qa_chain(vector_store):
         )
 
 
-        # memory = ConversationBufferMemory(
-        #     memory_key="chat_history",
-        #     return_messages=True
-        # )
+        memory = ConversationBufferMemory(
+            memory_key="chat_history",
+            return_messages=True,
+            output_key="answer"  
+
+        )
 
 
-        # qa_chain = ConversationalRetrievalChain.from_llm(
-        #     llm=llm,
-        #     retriever=retriever,
-        #     memory=memory,
-        #     return_source_documents=True
-        # )
-
-        # return qa_chain
-
+        return ConversationalRetrievalChain.from_llm(
+            llm=llm,
+            retriever=retriever,
+            memory=memory,
+            return_source_documents=True,
+            output_key="answer"
+        )
 
 
         #Retrieval-Augmented Generation  pipeline
-        return RetrievalQA.from_chain_type(
-            llm=llm,
-            chain_type="stuff",
-            retriever=retriever,
-            return_source_documents=True
-        )
+        # return RetrievalQA.from_chain_type(
+        #     llm=llm,
+        #     chain_type="stuff",
+        #     retriever=retriever,
+        #     return_source_documents=True
+        # )
     except Exception as e:
         print(f"Error creating QA chain: {e}")
         return None
@@ -202,14 +205,14 @@ class PDFProcessor:
             return "Please upload and process PDFs first", []
         
         try:
-            response = self.qa_chain.invoke({"query": query})
+            response = self.qa_chain.invoke({"question": query})
             
             # Format source documents
             sources = []
             for doc in response['source_documents']:
                 sources.append(f"Page {doc.metadata.get('page', 'N/A')}: {doc.page_content[:500]}...")
             
-            return response['result'], sources
+            return response['answer'], sources
         
         except Exception as e:
             return f"Error processing query: {e}", []
