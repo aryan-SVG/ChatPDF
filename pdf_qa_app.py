@@ -191,11 +191,15 @@ class PDFProcessor:
         
         return f"Successfully processed {len(new_files)} PDF(s). Total processed files: {len(self.processed_files)}"
     
-    def query_pdfs(self, query):
+    def query_pdfs(self, business, domain, prospects, query=""):
+
         """
         Query the processed PDFs.
         
         Args:
+            business (str): User's business type
+            domain (str): Help domain
+            prospects (str): Target clients/prospects
             query (str): User's query
         
         Returns:
@@ -204,8 +208,20 @@ class PDFProcessor:
         if not self.qa_chain:
             return "Please upload and process PDFs first", []
         
+
+        full_query = f"""
+            You are an assistant helping users find potential business partners from a provided PDF photosheet.
+            The user is in the business of: {business}.
+            The user needs help in the domain of: {domain}.
+            The user's ideal clients or prospects are: {prospects}.
+            {f'The user additionally asked: {query}' if query else ''}
+            Based on the uploaded PDF content and the user context above, identify relevant people who could be valuable referral partners.
+            """
+
+
+
         try:
-            response = self.qa_chain.invoke({"question": query})
+            response = self.qa_chain.invoke({"question": full_query})
             
             # Format source documents
             sources = []
@@ -244,7 +260,13 @@ def create_gradio_interface():
             status_output = gr.Textbox(label="Processing Status", interactive=False)
         
         with gr.Row():
-            query_input = gr.Textbox(label="Ask a Question", interactive=True)
+            #query_input = gr.Textbox(label="Ask a Question", interactive=True)
+            business_input = gr.Textbox(label="1. What business are you in?", interactive=True)
+            domain_input = gr.Textbox(label="2. In which domain do you need help?", interactive=True)
+            prospects_input = gr.Textbox(label="3. Who are your good clients/prospects?", interactive=True)
+            query_input = gr.Textbox(label="4. Additional question (optional)", interactive=True)
+
+
             submit_btn = gr.Button("Submit Query")
         
         answer_output = gr.Textbox(label="Answer", interactive=False)
@@ -262,7 +284,7 @@ def create_gradio_interface():
         # Submit query
         submit_btn.click(
             fn=pdf_processor.query_pdfs, 
-            inputs=[query_input], 
+            inputs=[business_input, domain_input, prospects_input, query_input], 
             outputs=[answer_output, sources_output]
         )
     
