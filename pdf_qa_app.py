@@ -1,312 +1,178 @@
-import gradio as gr                 # import gradio for buliding UI 
-import os                           # import os to ineract with .env 
-import warnings                     # To suppress warnings.
-from typing import List             # For type hinting.                               
-from dotenv import load_dotenv      # To load environment variables from a .env file.
+import gradio as gr, os, warnings, shutil, uuid
+from typing import List, Tuple, Dict, Any
+from dotenv import load_dotenv
 
-
-
-from langchain_community.document_loaders import PyPDFLoader   # Extracts text from PDFs.
-from langchain_huggingface import HuggingFaceEmbeddings        # Turns text into vectors using HF models.
-from langchain_community.vectorstores import Chroma            # A vector store to hold and retrieve those embeddings.
-from langchain_core.documents import Document                  # A document structure used in LangChain.
-from langchain_groq import ChatGroq                            # Loads the Groq API with LLaMA 3.3.
-from langchain.text_splitter import RecursiveCharacterTextSplitter # Splits text into chunks.
-from langchain.chains.retrieval_qa.base import RetrievalQA   #A QA chain that answers based on documents.   Three key abs-> llm , retriver , memory (history)
-
-#from langchain.chains import ConversationalRetrievalChain
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.vectorstores import Chroma
+from langchain_groq import ChatGroq
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.chains.conversational_retrieval.base import ConversationalRetrievalChain
-
 from langchain.memory import ConversationBufferMemory
 
-#Loads variables from .env
+# ────────────────────────── env / housekeeping ──────────────────────────
 load_dotenv()
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
-warnings.filterwarnings('ignore')
+warnings.filterwarnings("ignore")
 
-def load_pdf(file_path: str) -> List[Document]:
-    """
-    Load a PDF file and return its documents.
-    
-    Args:
-        file_path (str): Path to the PDF file
-    
-    Returns: 
-        List[Document]: Extracted documents from the PDF
-    """
-    try:
-        loader = PyPDFLoader(file_path)
-        documents = loader.load()
-        return documents                                            
-    except FileNotFoundError:                                                 
-        print(f"Error: File {file_path} not found.")
-        return []
-    except Exception as e:
-        print(f"Error loading PDF: {e}")
-        return []
-
-def split_documents(documents: List[Document], chunk_size: int = 500, chunk_overlap: int = 100) -> List[Document]:   # def split_pdf_into_chunks(documents: List[Document], chunk_size: int = 500, chunk_overlap: int = 100) -> List[Document]:
-    """
-    Split documents into smaller chunks.
-    
-    Args:
-        documents (List[Document]): Input documents
-        chunk_size (int): Size of each text chunk
-        chunk_overlap (int): Number of characters to overlap between chunks
-    
-    Returns:
-        List[Document]: Split documents
-    """
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-        separators=["\n\n", "\n", " ", ""]
-    )
-    return text_splitter.split_documents(documents)
-
-def create_vector_store(documents: List[Document], embedding_model: str = 'sentence-transformers/all-MiniLM-L6-v2'):  # Semantic search
-    """
-    Create a vector store from documents.
-    
-    Args:
-        documents (List[Document]): Input documents
-        embedding_model (str): Hugging Face embedding model to use
-    
-    Returns:
-        Chroma: Vector store
-    """
-    try:
-        embeddings = HuggingFaceEmbeddings(model_name=embedding_model)
-        return Chroma.from_documents(documents, embeddings)
-    except Exception as e:
-        print(f"Error creating vector store: {e}")
-        return None
-
-def create_qa_chain(vector_store):
-    """
-    Create a question-answering chain.
-    Three key abs-> llm , retriver , memory (history)
-    
-    Args:
-        vector_store: Vector store to use as retriever
-    
-    Returns:
-        RetrievalQA: Question-answering chain
-    """
-    try:
-        llm = ChatGroq(
-            model="llama-3.3-70b-versatile",
-            temperature=0,
-            max_retries=2
-        )
-        retriever = vector_store.as_retriever(
-            search_type="similarity",
-            search_kwargs={"k": 5}  # Retrieve top 5 most similar chunks
-        )
-
-
-        memory = ConversationBufferMemory(
-            memory_key="chat_history",
-            return_messages=True,
-            output_key="answer"  
-
-        )
-
-
-        return ConversationalRetrievalChain.from_llm(
-            llm=llm,
-            retriever=retriever,
-            memory=memory,
-            return_source_documents=True,
-            output_key="answer"
-        )
-
-
-        #Retrieval-Augmented Generation  pipeline
-        # return RetrievalQA.from_chain_type(
-        #     llm=llm,
-        #     chain_type="stuff",
-        #     retriever=retriever,
-        #     return_source_documents=True
-        # )
-    except Exception as e:
-        print(f"Error creating QA chain: {e}")
-        return None
-
+# ─────────────────────────── helper class ───────────────────────────────
 class PDFProcessor:
-    def __init__(self):
-        self.vector_store = None
-        self.qa_chain = None
-        self.processed_files = []
-    
-    def process_pdfs(self, pdf_files):
-        """
-        Process multiple PDF files and create a vector store.
-        
-        Args:
-            pdf_files (list): List of uploaded PDF file paths
-        
-        Returns:
-            str: Status message
-        """
-        # Check if any new files are added
-        new_files = [f for f in pdf_files if f not in self.processed_files]
-        
-        if not new_files:
-            return "No new PDFs to process."
+    """Loads → splits → embeds → stores → builds a retrieval-QA chain."""
+    def __init__(self) -> None:
+        self.vector_store: Chroma | None = None
+        self.qa_chain:     ConversationalRetrievalChain | None = None
+        self.processed:    list[str] = []
+        # keep every run isolated → random folder inside /tmp
+        self.persist_dir = f"/tmp/chroma_{uuid.uuid4().hex}"
+        os.makedirs(self.persist_dir, exist_ok=True)
 
-
-        all_documents = []
-        # Load and process each new PDF
-        for pdf_file in new_files:
-            documents = load_pdf(pdf_file)
-            if not documents:
-                return f"Failed to load PDF: {pdf_file}"
-            all_documents.extend(documents)
-        
-
-        # Split documents
-        split_docs = split_documents(all_documents)
-        
-
-        # Create vector store
-        if self.vector_store is None:
-            self.vector_store = create_vector_store(split_docs)
-        else:
-            # Add new documents to existing vector store
-            embeddings = HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2')
-            self.vector_store.add_documents(split_docs)
-        
-        if not self.vector_store:
-            return "Failed to create vector store"
-        
-
-        # Create QA chain
-        self.qa_chain = create_qa_chain(self.vector_store)
-        if not self.qa_chain:
-            return "Failed to create QA chain"
-        
-        # Update processed files
-        self.processed_files.extend(new_files)
-        
-        return f"Successfully processed {len(new_files)} PDF(s). Total processed files: {len(self.processed_files)}"
-    
-    def query_pdfs(self, business, domain, prospects, query=""):
-
-        """
-        Query the processed PDFs.
-        
-        Args:
-            business (str): User's business type
-            domain (str): Help domain
-            prospects (str): Target clients/prospects
-            query (str): User's query
-        
-        Returns:
-            tuple: Answer and source documents
-        """
-        if not self.qa_chain:
-            return "Please upload and process PDFs first", []
-        
-
-        full_query = f"""
-            You are an assistant helping users find potential business partners from a provided PDF photosheet.
-            The user is in the business of: {business}.
-            The user needs help in the domain of: {domain}.
-            The user's ideal clients or prospects are: {prospects}.
-            {f'The user additionally asked: {query}' if query else ''}
-            Based on the uploaded PDF content and the user context above, identify relevant people who could be valuable referral partners.
-            """
-
-
-
+    # ────────────────────────────────────────────────────────────────────
+    def process_pdfs(self, pdf_files: List[gr.File]) -> str:
         try:
-            response = self.qa_chain.invoke({"question": full_query})
-            
-            # Format source documents
-            sources = []
-            for doc in response['source_documents']:
-                sources.append(f"Page {doc.metadata.get('page', 'N/A')}: {doc.page_content[:500]}...")
-            
-            return response['answer'], sources
-        
+            new_files = [f for f in pdf_files if f.name not in self.processed]
+            if not new_files:
+                return "No new PDFs to process."
+
+            # 1) load
+            docs = []
+            for f in new_files:
+                docs.extend(PyPDFLoader(f.name).load())
+
+            # 2) split
+            splitter = RecursiveCharacterTextSplitter(
+                chunk_size=1000, chunk_overlap=100,
+                separators=["\n\n", "\n", " ", ""])
+            chunks = splitter.split_documents(docs)
+
+            # 3) embed & store
+            embedder = HuggingFaceEmbeddings(
+                model_name="sentence-transformers/all-MiniLM-L6-v2")
+            if self.vector_store is None:
+                self.vector_store = Chroma.from_documents(
+                    chunks, embedder, persist_directory=self.persist_dir)
+            else:
+                self.vector_store.add_documents(chunks)
+            self.vector_store.persist()
+
+            # 4) build / refresh chain
+            llm = ChatGroq(model="llama-3.3-70b-versatile",
+                           temperature=0, max_retries=2)
+            retriever = self.vector_store.as_retriever(
+                search_type="mmr",   # more diverse results
+                search_kwargs={"k": 15})
+            memory = ConversationBufferMemory(memory_key="chat_history",
+                                              return_messages=True,
+                                              output_key="answer")
+            self.qa_chain = ConversationalRetrievalChain.from_llm(
+                llm=llm, retriever=retriever, memory=memory,
+                return_source_documents=True, output_key="answer")
+
+            self.processed += [f.name for f in new_files]
+            return "PDFs processed."
+        except Exception as e:      # debug-friendly
+            return f"Error while processing PDFs: {e}"
+
+    # ────────────────────────────────────────────────────────────────────
+    def query(self, business: str, domain: str, prospects: str) -> str:
+        if not self.qa_chain:
+            return "Please upload and process a PDF first."
+
+        prompt = f"""
+You are an assistant helping users find potential business partners 
+from the uploaded PDF photosheet.
+
+ USER CONTEXT 
+The user is in the business of: {business}
+The user needs help in the domain of: {domain}
+The user's ideal clients or prospects are: {prospects}
+
+
+**Task**
+
+1. Examine the retrieved PDF snippets.  
+2. List **every person who could even remotely help** with *{domain}*  
+   (Either they work in it or build tech for it or they build tech similar  or can intro someone). 
+3. Sort the people **from most to least likely to help**. 
+4. For each person, print a mini visiting card exactly like:
+
+────────────────────────
+Name        : <full name>
+Role        : <title + company>
+Contact     : <email or phone or 'N/A'>
+Website     : <URL or Company/personal site or 'N/A'>
+Address     : <City + state or full address if present, or "N/A">
+Why relevant: <1-line reason>
+────────────────────────
+
+If no such people exist, reply _exactly_: **No relevant matches found in the PDF.** 
+"""
+        try:
+            ans = self.qa_chain.invoke({"question": prompt})["answer"]
+            return ans
         except Exception as e:
-            return f"Error processing query: {e}", []
+            return f"Error during query: {e}"
 
-def create_gradio_interface():
-    """
-    Create a Gradio interface for PDF QA system.
-    
-    Returns:
-        gr.Blocks: Gradio interface
-    """
-    # Initialize PDF processor
-    pdf_processor = PDFProcessor()
-    
-    # Create Gradio interface
-    with gr.Blocks(title="PDF Question Answering") as demo:
-        gr.Markdown("# PDF Question Answering System")
-        
-        
-        with gr.Row():
-            pdf_input = gr.File(
-                file_count="multiple", 
-                file_types=['.pdf'], 
-                label="Upload PDF Files"
-            )
-            
-        with gr.Row():
-            process_btn = gr.Button("Process PDFs")
-            status_output = gr.Textbox(label="Processing Status", interactive=False)
-        
-        with gr.Row():
-            #query_input = gr.Textbox(label="Ask a Question", interactive=True)
-            business_input = gr.Textbox(label="1. What business are you in?", interactive=True)
-            domain_input = gr.Textbox(label="2. In which domain do you need help?", interactive=True)
-            prospects_input = gr.Textbox(label="3. Who are your good clients/prospects?", interactive=True)
-            query_input = gr.Textbox(label="4. Additional question (optional)", interactive=True)
+# ─────────────────────────── UI wiring ──────────────────────────────────
+def build_ui() -> gr.Blocks:
+    proc = PDFProcessor()
+    INIT_STATE: Dict[str, Any] = {"step": 0, "business": "", "domain": "",
+                                  "prospects": "", "pdf_ok": False}
 
+    # ---------- callbacks ----------
+    def on_process(files, st):
+        msg = proc.process_pdfs(files)
+        st["pdf_ok"] = msg.startswith("PDFs processed")
+        st["step"] = 0
+        bot_seed = ("System",
+                    "✅ PDFs processed. Let's begin.\n\nWhat business are you in?")
+        return gr.update(value=""), [bot_seed], st
 
-            submit_btn = gr.Button("Submit Query")
-        
-        answer_output = gr.Textbox(label="Answer", interactive=False)
-        sources_output = gr.Textbox(label="Source Documents", interactive=False)
-        
-        
-        # Link button to backend functions 
-        # Process PDFs
-        process_btn.click(
-            fn=pdf_processor.process_pdfs, 
-            inputs=[pdf_input], 
-            outputs=[status_output]
-        )
-        
-        # Submit query
-        submit_btn.click(
-            fn=pdf_processor.query_pdfs, 
-            inputs=[business_input, domain_input, prospects_input, query_input], 
-            outputs=[answer_output, sources_output]
-        )
-    
+    def chat(user, hist, st):
+        if not st["pdf_ok"]:
+            hist.append((user, "Please upload a PDF and click **Process PDFs** first."))
+            return hist, st
+
+        if st["step"] == 0:
+            st["business"] = user; st["step"] = 1
+            hist.append((user, "In which domain do you need help?"))
+        elif st["step"] == 1:
+            st["domain"] = user; st["step"] = 2
+            hist.append((user, "Who are your ideal clients or prospects?"))
+        elif st["step"] == 2:
+            st["prospects"] = user; st["step"] = 3
+            answer = proc.query(st["business"], st["domain"], st["prospects"])
+            hist.append((user, answer))
+        else:  # follow-ups reuse context
+            answer = proc.query(st["business"], st["domain"], st["prospects"])
+            hist.append((user, answer))
+        return hist, st
+
+    # ---------- layout ----------
+    with gr.Blocks(title="Provisor Business Referral Chatbot") as demo:
+        gr.Markdown("# 📄 Provisor Business Referral Chatbot")
+
+        with gr.Row():
+            file_box   = gr.File(label="Upload PDF", file_count="multiple",
+                                 file_types=[".pdf"])
+            proc_btn   = gr.Button("Process PDFs")
+
+        chat_box = gr.Chatbot(
+            value=[("System", "👋 Please upload your photosheet PDF and "
+                              "click **Process PDFs** to begin.")],
+            label="Referral Assistant")
+        txt_in   = gr.Textbox(placeholder="Type message and press Enter…")
+        state    = gr.State(INIT_STATE)
+
+        # hook up events
+        proc_btn.click(on_process,
+                       inputs=[file_box, state],
+                       outputs=[txt_in, chat_box, state])
+        txt_in.submit(chat,
+                      inputs=[txt_in, chat_box, state],
+                      outputs=[chat_box, state]).then(
+            lambda: gr.update(value=""), None, txt_in)
+
     return demo
 
-def main():
-    # Create and launch Gradio interface
-    demo = create_gradio_interface()
-    demo.launch(share=False)
-
 if __name__ == "__main__":
-    main()
-
-
-
-
-
-# changes 
-'''
-ask the 3 question for context 
-chunk size 
-chunk overlap 
-search_kwargs
-memory 
-'''
+    build_ui().launch(share=False)
