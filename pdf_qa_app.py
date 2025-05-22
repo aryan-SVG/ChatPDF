@@ -1,16 +1,19 @@
-import gradio as gr, os, warnings, shutil, uuid
-from typing import List, Dict, Any
-from dotenv import load_dotenv
+import gradio as gr, os, warnings, uuid # import gradio for buliding UI and unique temp folder per session.
 
-from langchain_community.document_loaders import PyPDFLoader
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_community.vectorstores import Chroma
-from langchain_groq import ChatGroq
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.chains.conversational_retrieval.base import ConversationalRetrievalChain
-from langchain.memory import ConversationBufferMemory
+from typing import List, Dict, Any   # For type hinting.
+from dotenv import load_dotenv  # To load environment variables from a .env file.
+
+from langchain_community.document_loaders import PyPDFLoader  # Extracts text from PDFs.
+from langchain_huggingface import HuggingFaceEmbeddings # Turns text into vectors using HF models
+from langchain_community.vectorstores import Chroma  # A vector store to hold and retrieve those embeddings.
+from langchain_groq import ChatGroq # Loads the Groq API with LLaMA 3.3.
+from langchain.text_splitter import RecursiveCharacterTextSplitter # Splits text into chunks.
+from langchain.chains.conversational_retrieval.base import ConversationalRetrievalChain # The core “pipeline” object that wires together:llm ,memeory ,retiver 
+from langchain.memory import ConversationBufferMemory # This  stores chat history in memory
 
 # ────────────────────────── env / housekeeping ──────────────────────────
+#Loads variables from .env
+
 load_dotenv()
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 warnings.filterwarnings("ignore")
@@ -22,7 +25,7 @@ class PDFProcessor:
         self.vector_store: Chroma | None = None
         self.qa_chain: ConversationalRetrievalChain | None = None
         self.processed: list[str] = []
-        self.persist_dir = f"/tmp/chroma_{uuid.uuid4().hex}"
+        self.persist_dir = f"/tmp/chroma_{uuid.uuid4().hex}" #temporary vector DB storage directory
         os.makedirs(self.persist_dir, exist_ok=True)
 
     def process_pdfs(self, pdf_files: List[gr.File]) -> str:
@@ -101,9 +104,13 @@ Contact     : email or phone or 'N/A'
 Website     : URL or Company/personal site or 'N/A'
 Address     : City + state or full address if present, or "N/A"
 Why relevant: 1-line reason
-Likelihood to help: High / Medium / Low  
+Likelihood to help: High / Medium / Low  🥇/🥈/🥉 (add emoji)
 
 ────────────────────────
+**Emoji legend**:
+- 🥇 for High
+- 🥈 for Medium
+- 🥉 for Low
 
 If no such people exist, reply _exactly_: **No relevant matches found in the PDF.**
 """
@@ -122,7 +129,8 @@ If no such people exist, reply _exactly_: **No relevant matches found in the PDF
             return f"Error during follow-up query: {e}"
 
 
-def build_ui() -> gr.Blocks:
+# _______________________________web-UI eventlogic________________________
+def build_ui() -> gr.Blocks:  
     proc = PDFProcessor()
     init_state: Dict[str, Any] = {
         "step": 0,
@@ -143,9 +151,9 @@ def build_ui() -> gr.Blocks:
     def chat_logic(user, history, st):
         # If PDFs not yet processed
         if not st["pdf_ok"]:
-            history.append((user, "Please upload a PDF and click **Process PDFs** first."))
+            history.append((user, " 🚨 Please upload a PDF and click **Process PDFs** first ‼️ "))
             return history, st
-
+        #FMS -> finite state machine style control 
         # Step 0: ask business
         if st["step"] == 0:
             st["business"] = user
@@ -172,17 +180,36 @@ def build_ui() -> gr.Blocks:
 
     with gr.Blocks(title="Photosheet Business Referral Chatbot", css="assets/style.css") as demo:
         
-        with gr.Row(): 
+        with gr.Row():
+            gr.HTML(
+    """
+    <a href="https://www.sociosquares.com" target="_blank" style="display:inline-block;">
+        <img src="https://www.sociosquares.com/wp-content/uploads/2024/07/sociosquares-logo.png" 
+             style="vertical-align:middle; animation: glow 0.9s ease-in-out infinite alternate; box-shadow: 0 0 18px #32aaff; border-radius: 8px;"/>
+    </a>
+    <style>
+    @keyframes glow {
+      0% {
+        box-shadow: 0 0 8px #32aaff, 0 0 4px #32aaff;
+      }
+      100% {
+        box-shadow: 0 0 18px #32aaff, 0 0 10px #32aaff;
+      }
+    }
+    </style>
+    """
+)
+
           # ←CHANGE .css
-            gr.Image(
-                "assets/sociosquare_logo.png",
-                show_label=False,
-                show_download_button=False,
-                interactive=False,     
-                height=28
+            # gr.Image(
+            #     "assets/sociosquare_logo.png",
+            #     show_label=False,
+            #     show_download_button=False,
+            #     interactive=False,     
+            #     height=28
 
 
-            )
+            # )
             
 
         #  Privacy Notice 
@@ -195,14 +222,14 @@ def build_ui() -> gr.Blocks:
            )
 
 
-        gr.Markdown("# 📄 Photosheet Business Referral Chatbot")
+        gr.Markdown("# 📩 Photosheet Business Referral Chatbot")
 
         with gr.Row():
             file_box = gr.File(label="Upload PDF", file_count="multiple", file_types=[".pdf"])
             proc_btn = gr.Button("Process PDFs")
 
         chat_box = gr.Chatbot(
-            value=[("System", "👋 Please upload your photosheet PDF and click **Process PDFs** to begin.")],
+            value=[("System", "Hi 👋, Please upload your photosheet PDF and click **Process PDFs** to begin.")],
             label="Referral Assistant"
         )
         txt_in = gr.Textbox(placeholder="Type here and press Enter…")
