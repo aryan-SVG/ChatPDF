@@ -170,8 +170,32 @@ def build_ui() -> gr.Blocks:
 
         return history, st
 
-    with gr.Blocks(title="Provisor Business Referral Chatbot") as demo:
-        gr.Markdown("# 📄 Provisor Business Referral Chatbot")
+    with gr.Blocks(title="Photosheet Business Referral Chatbot", css="assets/style.css") as demo:
+        
+        with gr.Row(): 
+          # ←CHANGE .css
+            gr.Image(
+                "assets/sociosquare_logo.png",
+                show_label=False,
+                show_download_button=False,
+                interactive=False,     
+                height=28
+
+
+            )
+            
+
+        #  Privacy Notice 
+        # replace any inline <style> block with:
+        gr.HTML(
+            "<div class='privacy'>"
+            "🔒 Your data remains private, will be deleted after a few days, "
+            "and will never train the LLM."
+            "</div>"
+           )
+
+
+        gr.Markdown("# 📄 Photosheet Business Referral Chatbot")
 
         with gr.Row():
             file_box = gr.File(label="Upload PDF", file_count="multiple", file_types=[".pdf"])
@@ -193,3 +217,4 @@ def build_ui() -> gr.Blocks:
 
 if __name__ == "__main__":
     build_ui().launch(share=False)
+
